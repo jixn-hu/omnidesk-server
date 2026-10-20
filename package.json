@@ -1,0 +1,19 @@
+{
+  "name": "omnidesk-official-server",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "start": "node server.mjs",
+    "admin:create": "node tools/create-admin.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "express": "4.22.3",
+    "ssh2": "1.17.0",
+    "ws": "8.22.0"
+  }
+}

@@ -1,0 +1,111 @@
+import assert from 'node:assert/strict'
+import { once } from 'node:events'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { createRequire } from 'node:module'
+import { createOfficialServer } from '../server.mjs'
+import { createAccount } from '../admin-accounts.mjs'
+
+const { chromium } = createRequire(import.meta.url)('playwright')
+const directory = mkdtempSync(join(tmpdir(), 'omnidesk-admin-ui-'))
+const password = 'QA-synthetic-console-password'
+const service = createOfficialServer({ directory })
+let browser
+try {
+  await createAccount(service.storage, { username: 'qa_admin', password })
+  service.server.listen(0, '127.0.0.1')
+  await once(service.server, 'listening')
+  const origin = 'http://127.0.0.1:' + service.server.address().port
+  browser = await chromium.launch({ headless: true, ...(process.env.OMNIDESK_QA_BROWSER ? { executablePath: process.env.OMNIDESK_QA_BROWSER } : {}) })
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } })
+  const errors = []
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => { if (message.type() === 'error' && !message.text().includes('401')) errors.push(message.text()) })
+  await page.goto(origin + '/admin/', { waitUntil: 'networkidle' })
+  await page.locator('#login-view').waitFor({ state: 'visible' })
+  await page.screenshot({ path: join(directory, 'login.png'), fullPage: true })
+  await page.locator('#login-username').fill('qa_admin')
+  await page.locator('#login-password').fill(password)
+  await page.locator('#login-button').click()
+  await page.locator('#workspace').waitFor({ state: 'visible' })
+  await page.getByRole('button', { name: '管理用户 qa_admin', exact: true }).waitFor()
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('#workspace').waitFor({ state: 'visible' })
+  const cookie = (await page.context().cookies()).find(item => item.name === 'omnidesk_admin')
+  assert(cookie?.httpOnly && cookie.sameSite === 'Strict')
+  assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0)
+
+  await page.locator('#create-user').click()
+  await page.getByLabel('账号', { exact: true }).fill('qa_member')
+  await page.getByLabel('初始密码', { exact: true }).fill(password)
+  await page.getByRole('button', { name: '创建用户', exact: true }).click()
+  const manage = page.getByRole('button', { name: '管理用户 qa_member', exact: true })
+  await manage.waitFor()
+  await page.locator('#user-search').fill('not_found')
+  await page.locator('#users-empty').waitFor({ state: 'visible' })
+  await page.locator('#user-search').fill('qa_member')
+  await manage.waitFor()
+  assert.equal(await page.locator('#user-rows tr').count(), 1)
+
+  await manage.click()
+  await page.getByLabel('账号状态', { exact: true }).selectOption('1')
+  await page.getByRole('button', { name: '保存用户', exact: true }).click()
+  await page.locator('#user-dialog').waitFor({ state: 'hidden' })
+  assert.equal(service.storage.database.prepare('SELECT disabled FROM users WHERE username=?').get('qa_member').disabled, 1)
+  await manage.click()
+  await page.getByLabel('账号状态', { exact: true }).selectOption('0')
+  await page.getByLabel('角色', { exact: true }).selectOption('admin')
+  await page.getByRole('button', { name: '保存用户', exact: true }).click()
+  await page.locator('#user-dialog').waitFor({ state: 'hidden' })
+  assert.equal(service.storage.database.prepare('SELECT role FROM users WHERE username=?').get('qa_member').role, 'admin')
+
+  await manage.click()
+  await page.getByRole('button', { name: '重置账号密码', exact: true }).click()
+  await page.getByLabel('新密码', { exact: true }).fill(password + '-new')
+  await page.getByRole('button', { name: '确认重置密码', exact: true }).click()
+  await page.locator('#user-dialog').waitFor({ state: 'hidden' })
+  await manage.click()
+  await page.getByRole('button', { name: '撤销全部登录会话', exact: true }).click()
+  await page.getByRole('button', { name: '确认撤销全部会话', exact: true }).click()
+  await page.locator('#user-dialog').waitFor({ state: 'hidden' })
+  await page.locator('#user-search').fill('')
+  await page.getByRole('button', { name: '管理用户 qa_admin', exact: true }).waitFor()
+  await page.screenshot({ path: join(directory, 'users.png'), fullPage: true })
+
+  await page.locator('#nav-settings').click()
+  await page.locator('#registration-open').waitFor()
+  assert.equal(await page.locator('#registration-open').isChecked(), false)
+  await page.locator('#registration-open').check()
+  await page.locator('#save-settings').click()
+  await page.getByText('设置已保存，立即生效', { exact: true }).waitFor()
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('#nav-settings').click()
+  await page.locator('#registration-open').waitFor()
+  await page.waitForFunction(() => document.querySelector('#registration-open').checked)
+  await page.locator('#registration-open').uncheck()
+  await page.locator('#save-settings').click()
+  await page.getByText('设置已保存，立即生效', { exact: true }).waitFor()
+  assert.equal(service.storage.database.prepare('SELECT value FROM settings WHERE key=?').get('registrationOpen').value, 'false')
+  await page.screenshot({ path: join(directory, 'settings.png'), fullPage: true })
+
+  await page.locator('#nav-users').click()
+  await manage.click()
+  await page.getByRole('button', { name: '删除用户及其云端数据', exact: true }).click()
+  await page.getByLabel('输入账号名 qa_member 以确认', { exact: true }).fill('qa_member')
+  await page.getByRole('button', { name: '永久删除用户', exact: true }).click()
+  await manage.waitFor({ state: 'hidden' })
+  assert.equal(service.storage.database.prepare('SELECT count(*) AS total FROM users').get().total, 1)
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.screenshot({ path: join(directory, 'mobile.png'), fullPage: true })
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth))
+  await page.locator('#logout-button').click()
+  await page.locator('#login-view').waitFor({ state: 'visible' })
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.locator('#login-view').waitFor({ state: 'visible' })
+  assert.deepEqual(errors, [])
+  console.log('PASS: admin browser login, persistence, users, permissions, password reset, sessions, registration, deletion, logout, responsive layout; screenshots:', directory)
+} finally {
+  await browser?.close()
+  await service.close()
+}

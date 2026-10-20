@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>OmniDesk · 服务管理</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/admin/admin.css">
+  <script src="/admin/admin.js" defer></script>
+</head>
+<body>
+  <div id="notice" class="notice" role="alert" hidden></div>
+  <section id="login-view" class="login-layout" hidden>
+    <div class="login-story">
+      <a class="brand" href="/admin/"><span class="brand-mark">◈</span><span>OmniDesk<small>ACCOUNT SERVICE</small></span></a>
+      <div class="story-copy"><span class="eyebrow">ONE WORKSPACE. YOUR CONTROL.</span><h1>连接每一端，<br>管理有分寸。</h1><p>把账号、同步与共享留在你的掌控之中。<br>终端与远程桌面，依然独立运行。</p></div>
+      <div class="story-bottom"><span class="status-dot"></span>独立部署 · 管理员专用</div>
+    </div>
+    <main class="login-main"><div class="login-card">
+      <span class="eyebrow">CONTROL CONSOLE / 01</span><h2>欢迎回来</h2><p class="muted">使用本服务的管理员账号登录管理台。</p>
+      <form id="login-form">
+        <label>管理员账号<input id="login-username" name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_]{3,32}" required placeholder="输入管理员账号"></label>
+        <label>密码<input id="login-password" name="password" type="password" autocomplete="current-password" minlength="10" maxlength="1024" required placeholder="输入账号密码"></label>
+        <button class="primary wide" id="login-button" type="submit">登录管理台 <span>↗</span></button>
+      </form>
+      <div class="setup-note"><strong>首次部署？</strong><p>公开注册默认关闭。请在服务端运行 <code>npm run admin:create</code> 初始化管理员；Docker 使用 <code>docker compose exec account npm run admin:create</code>。</p></div>
+    </div></main>
+  </section>
+  <div id="workspace" class="workspace" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="/admin/"><span class="brand-mark">◈</span><span>OmniDesk<small>CONTROL CONSOLE</small></span></a>
+      <div class="nav-label">管理空间</div><nav aria-label="后台导航"><button class="nav-item active" id="nav-users" data-view="users"><span>▦</span>用户管理<span class="nav-number">01</span></button><button class="nav-item" id="nav-settings" data-view="settings"><span>⚙</span>登录与注册<span class="nav-number">02</span></button></nav>
+      <div class="sidebar-note"><span class="status-dot"></span>服务已连接<p>管理操作仅影响账号服务，<br>不会修改用户的本机连接。</p></div>
+      <div class="sidebar-user"><div class="avatar">A</div><div><strong id="current-username"></strong><small>服务管理员</small></div><button id="logout-button" class="icon-button" title="退出登录" aria-label="退出登录">↗</button></div>
+    </aside>
+    <main class="main">
+      <header class="topbar"><span>账号服务 <span class="slash">/</span> <strong id="breadcrumb">用户管理</strong></span><span class="service-badge"><span class="status-dot"></span>ADMIN ACCESS</span></header>
+      <div class="content">
+        <section id="users-view">
+          <div class="page-heading"><div><span class="eyebrow">PEOPLE & ACCESS</span><h1>每个账号，清晰可控。</h1><p class="muted">查看成员、同步状态与访问权限，在一处维护团队。</p></div><button id="create-user" class="primary">＋ 新建用户</button></div>
+          <div class="metrics"><article><span>全部用户</span><strong id="metric-users">—</strong><small>已创建的服务账号</small></article><article><span>管理员</span><strong id="metric-admins">—</strong><small>拥有服务管理权限</small></article><article><span>已同步用户</span><strong id="metric-sync">—</strong><small>云端已有配置备份</small></article><article><span>共享服务器</span><strong id="metric-shares">—</strong><small>云端可下载的配置</small></article></div>
+          <section class="panel"><div class="panel-toolbar"><div><h2>用户目录</h2><span id="user-count" class="muted">正在读取…</span></div><div class="table-controls"><label class="search"><span>⌕</span><input id="user-search" type="search" aria-label="搜索用户" placeholder="搜索账号名称"></label><button id="refresh-users" class="secondary">刷新</button></div></div>
+            <div class="table-scroll"><table><thead><tr><th>账号 / 角色</th><th>状态</th><th>最近登录</th><th>同步配置</th><th>共享 / 会话</th><th class="align-right">管理</th></tr></thead><tbody id="user-rows"></tbody></table></div>
+            <div id="users-empty" class="empty" hidden>没有匹配的用户，试试其他关键词。</div><div class="pagination"><span id="page-label"></span><div><button id="previous-page" class="secondary">上一页</button><button id="next-page" class="secondary">下一页</button></div></div>
+          </section><p class="footnote">不会展示任何用户的账号密码、私钥、登录令牌或同步密钥。</p>
+        </section>
+        <section id="settings-view" hidden>
+          <div class="page-heading"><div><span class="eyebrow">IDENTITY & POLICY</span><h1>开放有度，访问有序。</h1><p class="muted">按需开放注册，配置企业身份提供方。</p></div></div>
+          <form id="settings-form" class="settings-stack">
+            <section class="panel settings-panel"><div class="section-number">01 / REGISTRATION</div><div class="switch-row"><div><h2>允许新用户注册</h2><p class="muted">默认关闭，同时控制普通注册与 GitLab 首次建号。已有用户仍可正常登录、同步和共享。</p></div><label class="switch"><input id="registration-open" type="checkbox" role="switch" aria-label="允许新用户注册"><span></span></label></div><div class="policy-note">关闭公开注册时，管理员仍可在「用户管理」中创建账号。</div></section>
+            <section class="panel settings-panel"><div class="section-number">02 / ENTERPRISE IDENTITY</div><div class="switch-row"><div><h2>GitLab 企业登录</h2><p class="muted">支持自建 GitLab OAuth / OpenID Connect。留空 Secret 表示保留已保存的密钥。</p></div><label class="switch"><input id="gitlab-enabled" type="checkbox" role="switch" aria-label="开启 GitLab 登录"><span></span></label></div>
+              <div class="form-grid"><label>GitLab 服务地址<input id="gitlab-issuer" type="url" placeholder="https://gitlab.example.com"></label><label>Application ID<input id="gitlab-client-id" autocomplete="off"></label><label class="full">回调地址<input id="gitlab-redirect" type="url" placeholder="https://account.example.com/v1/auth/gitlab/callback"></label><label class="full">Application Secret<input id="gitlab-secret" type="password" autocomplete="new-password" placeholder="填写新密钥，或留空保留已有密钥"><small id="gitlab-secret-state" class="muted"></small></label></div>
+            </section><div class="settings-footer"><span class="muted">保存后立即生效，不需要重启服务。</span><button id="save-settings" class="primary" type="submit">保存设置</button></div>
+          </form>
+        </section>
+      </div>
+    </main>
+  </div>
+  <dialog id="user-dialog" aria-labelledby="dialog-title"><div class="dialog-heading"><div><span class="eyebrow">ACCOUNT CONTROL</span><h2 id="dialog-title">用户管理</h2></div><button id="close-dialog" class="icon-button" aria-label="关闭对话框">×</button></div><div id="dialog-content"></div></dialog>
+</body>
+</html>

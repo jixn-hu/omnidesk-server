@@ -15,7 +15,7 @@ jobs:
         run: |
           docker compose config --quiet
           docker compose -p omnidesk-ci up -d --build
-          curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:47830/health
+          curl --fail --retry 30 --retry-all-errors --retry-connrefused --retry-delay 1 http://127.0.0.1:47830/health
       - name: Verify initialization, login and the monitoring gateway
         run: |
           printf '%s' '{"username":"ci_admin","password":"Synthetic-CI-password"}' | docker compose -p omnidesk-ci exec -T cloud node tools/create-admin.mjs --stdin-json

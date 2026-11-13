@@ -22,7 +22,7 @@ try {
     const output = new Writable({ write(chunk, _encoding, done) { if (!muted) process.stdout.write(chunk); done() } })
     reader = createInterface({ input: process.stdin, output, terminal: !!process.stdin.isTTY })
     const username = (await reader.question('管理员账号（3–32 位字母、数字或下划线）：')).trim()
-    process.stdout.write('管理员密码（至少 10 位，不回显）：')
+    process.stdout.write('管理员密码（至少 6 位，不回显）：')
     muted = true
     const password = await reader.question('')
     muted = false

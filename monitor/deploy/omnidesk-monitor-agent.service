@@ -1,0 +1,20 @@
+[Unit]
+Description=OmniDesk monitoring agent
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+User=omnidesk-monitor
+Group=omnidesk-monitor
+ExecStart=/usr/local/bin/omnidesk-monitor-agent -config /etc/omnidesk-monitor/agent.json
+Restart=on-failure
+RestartSec=5
+StateDirectory=omnidesk-monitor-agent
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+[Install]
+WantedBy=multi-user.target

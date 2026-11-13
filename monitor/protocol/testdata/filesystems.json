@@ -1,0 +1,67 @@
+[
+  {
+    "fsType": "ext4",
+    "mount": "/",
+    "included": true
+  },
+  {
+    "fsType": "squashfs",
+    "mount": "/snap/core20/2922",
+    "included": false
+  },
+  {
+    "fsType": " SQUASHFS ",
+    "mount": "/other/image",
+    "included": false
+  },
+  {
+    "fsType": "iso9660",
+    "mount": "/media/cdrom",
+    "included": false
+  },
+  {
+    "fsType": "tmpfs",
+    "mount": "/run",
+    "included": false
+  },
+  {
+    "fsType": "proc",
+    "mount": "/proc",
+    "included": false
+  },
+  {
+    "fsType": "",
+    "mount": "/snap/core22/2987",
+    "included": false
+  },
+  {
+    "fsType": "",
+    "mount": "/var/lib/snapd/snap/snapd/12",
+    "included": false
+  },
+  {
+    "fsType": "ext4",
+    "mount": "/snap/writable-data",
+    "included": true
+  },
+  {
+    "fsType": "ext4",
+    "mount": "/mnt/writable-loop",
+    "included": true
+  },
+  {
+    "fsType": "overlay",
+    "mount": "/",
+    "included": true
+  },
+  {
+    "fsType": "nfs4",
+    "mount": "/data",
+    "included": true
+  },
+  {
+    "fsType": "",
+    "mount": "/data",
+    "included": true
+  }
+]

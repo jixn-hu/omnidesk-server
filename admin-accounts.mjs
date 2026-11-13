@@ -9,7 +9,7 @@ export function requireAdministrator(database, id) {
 }
 
 export function validatePassword(value) {
-  if (typeof value !== 'string' || value.length < 10 || value.length > 1024 || value.includes('\0')) reject(400, '账号密码需为 10–1024 个字符，不能包含空字符')
+  if (typeof value !== 'string' || value.length < 6 || value.length > 1024 || value.includes('\0')) reject(400, '账号密码需为 6–1024 个字符，不能包含空字符')
   return value
 }
 

@@ -1,4 +1,6 @@
 import express from 'express'
+import { registerMonitoring } from './monitor-gateway.mjs'
+import { registerMonitorInstall } from './monitor-install.mjs'
 import { createServer } from 'node:http'
 import { randomUUID, randomBytes } from 'node:crypto'
 import { resolve } from 'node:path'
@@ -12,6 +14,7 @@ import { registerGitlabAuth } from './gitlab-auth.mjs'
 import { sharedConfiguration } from './shared/shared-configuration.mjs'
 import { registerAdminConsole, adminCookieToken, requireAdminBrowserRequest } from './admin-console.mjs'
 import { registerUserManagement } from './admin-users.mjs'
+import { registerSharedServerManagement } from './admin-shares.mjs'
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -27,7 +30,7 @@ const username = value => {
   return result
 }
 const password = value => {
-  if (typeof value !== 'string' || value.length < 10 || value.length > 1024) fail(400, '账号密码需为 10–1024 个字符')
+  if (typeof value !== 'string' || value.length < 6 || value.length > 1024) fail(400, '账号密码需为 6–1024 个字符')
   return value
 }
 
@@ -47,7 +50,7 @@ export function createOfficialServer(options = {}) {
         const origin = new URL(request.headers.origin)
         const expected = options.publicUrl ?? process.env.OFFICIAL_PUBLIC_URL
         const localHttp = origin.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)
-        if (expected ? origin.origin !== new URL(expected).origin : origin.host !== request.headers.host || !(origin.protocol === 'https:' || localHttp)) throw new Error()
+        if (expected ? !expected.split(',').some(value => origin.origin === new URL(value.trim()).origin) : origin.host !== request.headers.host || !(origin.protocol === 'https:' || localHttp)) throw new Error()
       } catch { return response.status(403).json({ error: '不允许跨站请求' }) }
     }
     next()
@@ -137,19 +140,25 @@ export function createOfficialServer(options = {}) {
       response.json(loginResult(user))
     } finally { authBusy-- }
   }))
+  registerMonitorInstall({ application, authenticate, route, storage, url: options.monitorUrl ?? process.env.OMNIDESK_MONITOR_URL, token: options.monitorToken ?? process.env.OMNIDESK_MONITOR_TOKEN, directory: options.windowsAgentDirectory ?? process.env.OMNIDESK_WINDOWS_AGENT_DIR, now: options.installNow })
+  registerMonitoring({ application, authenticate, route, url: options.monitorUrl ?? process.env.OMNIDESK_MONITOR_URL, token: options.monitorToken ?? process.env.OMNIDESK_MONITOR_TOKEN })
   application.use('/v1', authenticate)
   application.get('/v1/me', (request, response) => response.json(publicUser(request.account)))
   registerUserManagement({ application, storage, route, fail, active, tickets, publicUser })
+  registerSharedServerManagement({ application, storage, route, fail, active, tickets })
+  const settingsRevision = () => tokenHash(JSON.stringify([registrationOpen(), database.prepare('SELECT value FROM settings WHERE key=?').get('gitlab').value]))
+  const adminSettings = () => ({ registrationOpen: registrationOpen(), gitlab: gitlab.settings(), revision: settingsRevision() })
   application.get('/v1/admin/settings', route((request, response) => {
-    if (request.account.role !== 'admin') fail(403, '只有管理员可以管理注册设置')
-    response.json({ registrationOpen: registrationOpen(), gitlab: gitlab.settings() })
+    if (request.account.role !== 'admin') fail(403, '只有管理员可以管理服务端设置')
+    response.json(adminSettings())
   }))
   application.get('/v1/admin/auth-diagnostics', route((request, response) => {
     if (request.account.role !== 'admin') fail(403, '只有管理员可以查看授权诊断')
     response.json({ failures: gitlab.diagnostics() })
   }))
   application.put('/v1/admin/settings', route((request, response) => {
-    if (request.account.role !== 'admin') fail(403, '只有管理员可以管理注册设置')
+    if (request.account.role !== 'admin') fail(403, '只有管理员可以管理服务端设置')
+    if (request.body.revision !== undefined && request.body.revision !== settingsRevision()) fail(409, '设置已被其他管理员修改，请重新读取后再保存')
     if (typeof request.body.registrationOpen !== 'boolean') fail(400, '注册开关必须为布尔值')
     const gitlabSettings = request.body.gitlab === undefined ? undefined : gitlab.prepareSettings(request.body.gitlab)
     const gitlabChanged = gitlabSettings !== undefined && gitlabSettings !== database.prepare('SELECT value FROM settings WHERE key=?').get('gitlab').value
@@ -160,7 +169,7 @@ export function createOfficialServer(options = {}) {
       database.exec('COMMIT')
     } catch (error) { database.exec('ROLLBACK'); throw error }
     if (gitlabChanged) gitlab.invalidate()
-    response.json({ registrationOpen: registrationOpen(), gitlab: gitlab.settings() })
+    response.json(adminSettings())
   }))
   application.get('/v1/admin/users', route((request, response) => {
     if (request.account.role !== 'admin') fail(403, '只有管理员可以查看用户信息')
@@ -227,7 +236,7 @@ export function createOfficialServer(options = {}) {
   application.post('/v1/shares/check-target', route(async (request, response) => {
     rate('target:' + request.account.id, 120)
     const metadata = metadataFrom(request.body)
-    const existing = database.prepare('SELECT id, owner_id, updated_at FROM shares WHERE endpoint_key=?').get(connectionKey(metadata))
+    const existing = database.prepare('SELECT id, owner_id, updated_at, metadata FROM shares WHERE endpoint_key=?').get(connectionKey(metadata))
     if (existing && existing.owner_id !== request.account.id) fail(409, '该服务器已由其他账号共享，请从共享目录使用，不会创建重复记录')
     if (metadata.sharingMode === 'copy') return response.json({ existing: existing ? { id: existing.id, updatedAt: existing.updated_at } : undefined })
     const result = await withTarget(async () => {
@@ -240,7 +249,8 @@ export function createOfficialServer(options = {}) {
     rate('share:' + request.account.id, 120)
     const metadata = metadataFrom(request.body)
     const key = connectionKey(metadata)
-    const existing = database.prepare('SELECT id, owner_id, updated_at FROM shares WHERE endpoint_key=?').get(key)
+    const existing = database.prepare('SELECT id, owner_id, updated_at, metadata FROM shares WHERE endpoint_key=?').get(key)
+    if (existing && JSON.parse(existing.metadata).source === 'managed') fail(409, '该服务器由管理员集中维护，请在 Web 管理台更新')
     if (existing && existing.owner_id !== request.account.id) fail(409, '该服务器已经共享，目录中只保留一条；请从共享列表使用或由原共享者更新')
     if (existing && (request.body.existingId !== existing.id || request.body.existingUpdatedAt !== existing.updated_at)) fail(409, '共享已存在或已被更新，请重新确认后再发布')
     if (!existing && database.prepare('SELECT count(*) AS total FROM shares WHERE owner_id=?').get(request.account.id).total >= 1000) fail(400, '每个账号最多共享 1000 台服务器')
@@ -272,9 +282,9 @@ export function createOfficialServer(options = {}) {
     const page = Math.max(0, Math.min(100000, Number(request.query.page) || 0))
     if (!Number.isInteger(page)) fail(400, '页码无效')
     const pattern = '%' + query.replace(/[\\%_]/g, value => '\\' + value) + '%'
-    const predicate = "(json_extract(metadata, '$.name') LIKE ? ESCAPE char(92) OR json_extract(metadata, '$.host') LIKE ? ESCAPE char(92) OR json_extract(metadata, '$.note') LIKE ? ESCAPE char(92))"
-    const total = database.prepare('SELECT count(*) AS total FROM shares WHERE ' + predicate).get(pattern, pattern, pattern).total
-    const rows = database.prepare('SELECT shares.id, shares.owner_id, shares.metadata, shares.created_at, users.username AS owner FROM shares JOIN users ON users.id=shares.owner_id WHERE ' + predicate + ' ORDER BY shares.created_at DESC, shares.id LIMIT 50 OFFSET ?').all(pattern, pattern, pattern, page * 50)
+    const predicate = "(json_extract(metadata, '$.name') LIKE ? ESCAPE char(92) OR json_extract(metadata, '$.host') LIKE ? ESCAPE char(92) OR json_extract(metadata, '$.note') LIKE ? ESCAPE char(92) OR json_extract(metadata, '$.username') LIKE ? ESCAPE char(92) OR json_extract(metadata, '$.group') LIKE ? ESCAPE char(92) OR EXISTS (SELECT 1 FROM json_each(metadata,'$.tags') WHERE value LIKE ? ESCAPE char(92)))"
+    const total = database.prepare('SELECT count(*) AS total FROM shares WHERE ' + predicate).get(pattern, pattern, pattern, pattern, pattern, pattern).total
+    const rows = database.prepare('SELECT shares.id, shares.owner_id, shares.metadata, shares.created_at, users.username AS owner FROM shares JOIN users ON users.id=shares.owner_id WHERE ' + predicate + ' ORDER BY shares.created_at DESC, shares.id LIMIT 50 OFFSET ?').all(pattern, pattern, pattern, pattern, pattern, pattern, page * 50)
     response.json({ total, items: rows.map(row => ({ id: row.id, ...JSON.parse(row.metadata), downloadable: JSON.parse(row.metadata).sharingMode === 'copy' || row.owner_id === request.account.id, owner: row.owner, owned: row.owner_id === request.account.id, createdAt: row.created_at })) })
   }))
   application.get('/v1/shares/:id/configuration', route((request, response) => {
@@ -286,8 +296,9 @@ export function createOfficialServer(options = {}) {
     response.json({ configuration: sharedConfiguration(metadata.configuration ?? metadata), credential: open(record.credential, 'share:' + record.id) })
   }))
   application.delete('/v1/shares/:id', route((request, response) => {
-    const shared = database.prepare('SELECT owner_id FROM shares WHERE id=?').get(request.params.id)
+    const shared = database.prepare('SELECT owner_id, metadata FROM shares WHERE id=?').get(request.params.id)
     if (!shared || shared.owner_id !== request.account.id) fail(404, '共享不存在或不属于当前账号')
+    if (JSON.parse(shared.metadata).source === 'managed') fail(403, '团队服务器请在 Web 管理台维护')
     database.prepare('DELETE FROM shares WHERE id=?').run(request.params.id)
     for (const item of active.values()) if (item.shareId === request.params.id) item.close()
     response.json({ ok: true })

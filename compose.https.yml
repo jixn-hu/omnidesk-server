@@ -13,6 +13,6 @@ services:
       - /var/run
       - /tmp
     depends_on:
-      - account
+      - cloud
     security_opt:
       - no-new-privileges:true

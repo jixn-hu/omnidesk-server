@@ -1,11 +1,14 @@
 node_modules
 .git
+.local
 test
 tmp
 tls
 official-data
 data
 .env*
+**/bin
+**/*.exe
 **/*.sqlite*
 **/*.db*
 **/*.key

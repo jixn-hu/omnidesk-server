@@ -7,6 +7,8 @@
   <title>OmniDesk · 服务管理</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/admin/admin.css">
+  <script src="/admin/shared-servers.js" defer></script>
+  <script src="/admin/server-settings.js" defer></script>
   <script src="/admin/admin.js" defer></script>
 </head>
 <body>
@@ -18,10 +20,16 @@
       <div class="story-bottom"><span class="status-dot"></span>独立部署 · 管理员专用</div>
     </div>
     <main class="login-main"><div class="login-card">
-      <span class="eyebrow">CONTROL CONSOLE / 01</span><h2>欢迎回来</h2><p class="muted">使用本服务的管理员账号登录管理台。</p>
+      <span class="eyebrow">CONTROL CONSOLE / 01</span><h2>欢迎回来</h2><p class="muted">使用已绑定的 GitLab 管理员账号，或本服务的账号密码登录。</p>
+      <div id="gitlab-login" class="gitlab-login" hidden>
+        <button id="gitlab-login-button" class="secondary wide" type="button"><span class="gitlab-label"><svg aria-hidden="true" viewBox="0 0 24 24" width="22" height="22"><path fill="#e24329" d="m12 22 4.4-13.6H7.6Z"/><path fill="#fc6d26" d="M12 22 1.3 8.4h6.3Zm0 0L22.7 8.4h-6.3Z"/><path fill="#fca326" d="m1.3 8.4-.9 2.9a2 2 0 0 0 .7 2.2L12 22Zm21.4 0 .9 2.9a2 2 0 0 1-.7 2.2L12 22ZM1.3 8.4 3.6 1.3a.5.5 0 0 1 .9 0l3.1 7.1Zm21.4 0-2.3-7.1a.5.5 0 0 0-.9 0l-3.1 7.1Z"/></svg><span>使用 GitLab 登录</span></span><span aria-hidden="true">↗</span></button>
+        <p id="gitlab-login-hint" class="muted"></p>
+        <div class="login-divider"><span>或使用账号密码</span></div>
+      </div>
+      <div id="gitlab-login-progress" class="gitlab-progress" hidden><p id="gitlab-login-status" role="status" aria-live="polite"></p><button id="gitlab-login-cancel" class="secondary" type="button" hidden>取消本次登录</button></div>
       <form id="login-form">
         <label>管理员账号<input id="login-username" name="username" autocomplete="username" minlength="3" maxlength="32" pattern="[a-zA-Z0-9_]{3,32}" required placeholder="输入管理员账号"></label>
-        <label>密码<input id="login-password" name="password" type="password" autocomplete="current-password" minlength="10" maxlength="1024" required placeholder="输入账号密码"></label>
+        <label>密码<input id="login-password" name="password" type="password" autocomplete="current-password" minlength="6" maxlength="1024" required placeholder="输入账号密码"></label>
         <button class="primary wide" id="login-button" type="submit">登录管理台 <span>↗</span></button>
       </form>
       <div class="setup-note"><strong>首次部署？</strong><p>公开注册默认关闭。请在服务端运行 <code>npm run admin:create</code> 初始化管理员；Docker 使用 <code>docker compose exec account npm run admin:create</code>。</p></div>
@@ -30,7 +38,7 @@
   <div id="workspace" class="workspace" hidden>
     <aside class="sidebar">
       <a class="brand" href="/admin/"><span class="brand-mark">◈</span><span>OmniDesk<small>CONTROL CONSOLE</small></span></a>
-      <div class="nav-label">管理空间</div><nav aria-label="后台导航"><button class="nav-item active" id="nav-users" data-view="users"><span>▦</span>用户管理<span class="nav-number">01</span></button><button class="nav-item" id="nav-settings" data-view="settings"><span>⚙</span>登录与注册<span class="nav-number">02</span></button></nav>
+      <div class="nav-label">管理空间</div><nav aria-label="后台导航"><button class="nav-item active" id="nav-users" data-view="users"><span>▦</span>用户管理<span class="nav-number">01</span></button><button class="nav-item" id="nav-shares" data-view="shares"><span>▤</span>共享服务器<span class="nav-number">02</span></button><button class="nav-item" id="nav-settings" data-view="settings"><span>⚙</span>服务端设置<span class="nav-number">03</span></button></nav>
       <div class="sidebar-note"><span class="status-dot"></span>服务已连接<p>管理操作仅影响账号服务，<br>不会修改用户的本机连接。</p></div>
       <div class="sidebar-user"><div class="avatar">A</div><div><strong id="current-username"></strong><small>服务管理员</small></div><button id="logout-button" class="icon-button" title="退出登录" aria-label="退出登录">↗</button></div>
     </aside>
@@ -45,14 +53,38 @@
             <div id="users-empty" class="empty" hidden>没有匹配的用户，试试其他关键词。</div><div class="pagination"><span id="page-label"></span><div><button id="previous-page" class="secondary">上一页</button><button id="next-page" class="secondary">下一页</button></div></div>
           </section><p class="footnote">不会展示任何用户的账号密码、私钥、登录令牌或同步密钥。</p>
         </section>
+        <section id="shares-view" hidden>
+          <div class="page-heading"><div><span class="eyebrow">SHARED INFRASTRUCTURE</span><h1>共享服务器</h1><p class="muted">集中维护团队连接，也可以管理成员发布的服务器。客户端按需拉取到本机。</p></div><div class="heading-actions"><button id="import-servers" class="secondary">导入配置</button><button id="create-server" class="primary">＋ 新建服务器</button></div></div>
+          <div class="metrics"><article><span>共享总数</span><strong id="server-metric-total">—</strong><small>团队统一的服务器目录</small></article><article><span>管理员维护</span><strong id="server-metric-managed">—</strong><small>直接创建或导入的团队配置</small></article><article><span>SSH 终端</span><strong id="server-metric-ssh">—</strong><small>Linux 与终端连接</small></article><article><span>RDP 桌面</span><strong id="server-metric-rdp">—</strong><small>Windows 远程桌面</small></article></div>
+          <section class="panel"><div class="panel-toolbar server-toolbar"><div><h2>服务器目录</h2><span id="server-count" class="muted">正在读取…</span></div><div class="table-controls"><label class="search"><span>⌕</span><input id="server-search" type="search" aria-label="搜索共享服务器" placeholder="名称、地址、账号、标签、备注…"></label><select id="server-kind" aria-label="筛选协议"><option value="">全部协议</option><option value="ssh">SSH</option><option value="rdp">RDP</option></select><select id="server-source" aria-label="筛选来源"><option value="">全部来源</option><option value="managed">管理员维护</option><option value="user">用户共享</option></select><button id="refresh-servers" class="secondary">刷新</button></div></div>
+            <div id="server-load-error" class="server-load-error" role="alert" hidden></div>
+            <div class="server-selection"><label><input id="select-all-servers" type="checkbox" aria-label="选择本页全部服务器">选择本页</label><span id="server-selection-count">已选 0 台</span><button id="edit-selected-servers" class="secondary" disabled>批量编辑</button><button id="delete-selected-servers" class="danger" disabled>删除所选</button></div>
+            <div class="table-scroll"><table class="servers-table"><thead><tr><th></th><th>服务器 / 连接地址</th><th>协议 / 账号</th><th>分组 / 标签</th><th>来源 / 维护者</th><th>更新时间</th><th class="align-right">操作</th></tr></thead><tbody id="server-rows"></tbody></table></div>
+            <div id="servers-empty" class="empty" hidden>暂无共享服务器。点击「新建服务器」或「导入配置」开始维护。</div><div class="pagination"><span id="server-page-label"></span><div><button id="server-previous-page" class="secondary">上一页</button><button id="server-next-page" class="secondary">下一页</button></div></div>
+          </section><p class="footnote">连接配置保存在服务端，密码 / 私钥加密保存。已登录用户可下载共享配置；更新或删除云端条目不会改动已下载的本机副本。</p>
+        </section>
         <section id="settings-view" hidden>
-          <div class="page-heading"><div><span class="eyebrow">IDENTITY & POLICY</span><h1>开放有度，访问有序。</h1><p class="muted">按需开放注册，配置企业身份提供方。</p></div></div>
+          <div class="page-heading"><div><span class="eyebrow">SERVER SETTINGS / 03</span><h1>服务端设置</h1><p class="muted">在这里维护企业登录与注册策略，保存后立即生效。</p></div><button id="reload-settings" class="secondary" type="button">重新读取配置</button></div>
+          <div class="settings-summary" aria-label="当前已保存的设置"><div><span>当前管理地址</span><strong id="settings-origin"></strong></div><div><span>GitLab 登录</span><strong id="settings-gitlab-status">正在读取…</strong></div><div><span>公开注册</span><strong id="settings-registration-status">正在读取…</strong></div></div>
+          <p id="settings-error" class="settings-message error" role="alert" hidden></p>
           <form id="settings-form" class="settings-stack">
-            <section class="panel settings-panel"><div class="section-number">01 / REGISTRATION</div><div class="switch-row"><div><h2>允许新用户注册</h2><p class="muted">默认关闭，同时控制普通注册与 GitLab 首次建号。已有用户仍可正常登录、同步和共享。</p></div><label class="switch"><input id="registration-open" type="checkbox" role="switch" aria-label="允许新用户注册"><span></span></label></div><div class="policy-note">关闭公开注册时，管理员仍可在「用户管理」中创建账号。</div></section>
-            <section class="panel settings-panel"><div class="section-number">02 / ENTERPRISE IDENTITY</div><div class="switch-row"><div><h2>GitLab 企业登录</h2><p class="muted">支持自建 GitLab OAuth / OpenID Connect。留空 Secret 表示保留已保存的密钥。</p></div><label class="switch"><input id="gitlab-enabled" type="checkbox" role="switch" aria-label="开启 GitLab 登录"><span></span></label></div>
-              <div class="form-grid"><label>GitLab 服务地址<input id="gitlab-issuer" type="url" placeholder="https://gitlab.example.com"></label><label>Application ID<input id="gitlab-client-id" autocomplete="off"></label><label class="full">回调地址<input id="gitlab-redirect" type="url" placeholder="https://account.example.com/v1/auth/gitlab/callback"></label><label class="full">Application Secret<input id="gitlab-secret" type="password" autocomplete="new-password" placeholder="填写新密钥，或留空保留已有密钥"><small id="gitlab-secret-state" class="muted"></small></label></div>
-            </section><div class="settings-footer"><span class="muted">保存后立即生效，不需要重启服务。</span><button id="save-settings" class="primary" type="submit">保存设置</button></div>
+            <fieldset id="settings-fields" disabled>
+              <section class="panel settings-panel"><div class="section-number">01 / ENTERPRISE IDENTITY</div><div class="switch-row"><div><h2>GitLab 企业登录</h2><p class="muted">填写 GitLab OAuth 应用参数。Web 管理台与 PC 客户端共用这份配置。</p></div><label class="switch"><input id="gitlab-enabled" type="checkbox" role="switch" aria-label="开启 GitLab 登录"><span></span></label></div>
+                <div class="form-grid">
+                  <label>GitLab 服务地址<input id="gitlab-issuer" type="url" required maxlength="2048" placeholder="https://gitlab.example.com" aria-describedby="gitlab-issuer-help"><small id="gitlab-issuer-help" class="muted">企业 GitLab 的根地址，使用 HTTPS。例：https://gitlab.example.com</small></label>
+                  <label>Application ID<input id="gitlab-client-id" autocomplete="off" maxlength="2048" aria-describedby="gitlab-id-help"><small id="gitlab-id-help" class="muted">从 GitLab OAuth 应用详情复制 Application ID。</small></label>
+                  <label class="full">回调地址<input id="gitlab-redirect" type="url" maxlength="2048" placeholder="https://account.example.com/v1/auth/gitlab/callback" aria-describedby="gitlab-redirect-help"><small id="gitlab-redirect-help" class="muted">必须与 GitLab 应用中的 Redirect URI 完全一致。HTTP 管理页可以继续使用原来的 HTTPS 回调。</small></label>
+                  <div class="full callback-actions"><button id="use-current-callback" type="button" class="secondary">填入当前站点回调</button><button id="copy-gitlab-callback" type="button" class="secondary">复制回调地址</button><span id="gitlab-callback-hint" class="muted"></span></div>
+                  <label class="full">Application Secret<input id="gitlab-secret" type="password" autocomplete="new-password" maxlength="8192" placeholder="填写新密钥，或留空保留已有密钥" aria-describedby="gitlab-secret-state"><small id="gitlab-secret-state" class="muted"></small></label>
+                </div>
+                <div class="settings-guide"><strong>GitLab 应用配置提示</strong><p>在 GitLab 的应用设置中创建 OAuth 应用，勾选 <code>openid</code>、<code>profile</code> 权限，并填写上面的回调地址。更换 GitLab 服务或 Application ID 时，需要同时填写对应的新 Secret。</p><p>Web 登录仅允许已绑定且启用的管理员。首次绑定可在 PC 客户端完成，再由管理员授权；开启企业登录不会自动提升用户权限。</p></div>
+              </section>
+              <section class="panel settings-panel"><div class="section-number">02 / REGISTRATION POLICY</div><div class="switch-row"><div><h2>允许新用户注册</h2><p class="muted">同时控制普通注册与 GitLab 首次建号。已有用户仍可正常登录、同步和共享。</p></div><label class="switch"><input id="registration-open" type="checkbox" role="switch" aria-label="允许新用户注册"><span></span></label></div><div class="policy-note">关闭公开注册时，管理员仍可在「用户管理」中创建账号。</div></section>
+              <div class="settings-footer"><span id="settings-save-state" class="muted" role="status">正在读取已保存的配置…</span><div class="settings-actions"><button id="reset-settings" class="secondary" type="button" disabled>撤销修改</button><button id="save-settings" class="primary" type="submit" disabled>保存设置</button></div></div>
+            </fieldset>
           </form>
+          <section class="panel settings-panel settings-diagnostics"><div class="diagnostics-heading"><div><div class="section-number">03 / LOGIN DIAGNOSTICS</div><h2>GitLab 登录诊断</h2><p class="muted">查看本次服务运行期间的最近授权错误，便于排查回调、权限或证书问题。</p></div><button id="refresh-auth-diagnostics" type="button" class="secondary">刷新诊断</button></div><p id="auth-diagnostics-state" class="muted" role="status">正在读取…</p><ul id="auth-diagnostics" class="diagnostics-list"></ul></section>
+          <p class="footnote">页面保存的配置持久化在服务端，重启后保留。环境变量仅用于首次初始化；端口、数据目录、证书等部署参数仍由服务部署配置维护。</p>
         </section>
       </div>
     </main>

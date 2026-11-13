@@ -19,3 +19,12 @@ tmp/
 connections.json
 shared-credentials.json
 vault.enc
+
+.local/
+
+__pycache__/
+
+*.pyc
+
+monitor/bin/
+monitor/agent.exe

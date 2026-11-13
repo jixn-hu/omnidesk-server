@@ -1,0 +1,4 @@
+services:
+  cloud:
+    ports:
+      - "${OFFICIAL_HTTP_BIND:-127.0.0.1}:${OFFICIAL_HTTP_PORT:-47831}:47830"

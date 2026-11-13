@@ -1,26 +1,27 @@
 services:
-  account:
+  cloud:
     build:
       context: .
       dockerfile: Dockerfile
     restart: unless-stopped
+    init: true
     ports:
       - "127.0.0.1:47830:47830"
     environment:
-      GUACD_HOST: guacd
-      OFFICIAL_TARGET_CIDRS: ${OFFICIAL_TARGET_CIDRS:-}
-      OFFICIAL_REGISTRATION: ${OFFICIAL_REGISTRATION:-false}
       OFFICIAL_PUBLIC_URL: ${OFFICIAL_PUBLIC_URL:-}
+      OFFICIAL_REGISTRATION: ${OFFICIAL_REGISTRATION:-false}
+      OFFICIAL_TARGET_CIDRS: ${OFFICIAL_TARGET_CIDRS:-}
+      OMNIDESK_WEBHOOK_URL: ${OMNIDESK_WEBHOOK_URL:-}
     volumes:
-      - account-data:/data
-    security_opt:
-      - no-new-privileges:true
-  guacd:
-    profiles: [legacy-gateway]
-    image: guacamole/guacd:1.6.0
-    restart: unless-stopped
+      - cloud-data:/data
+      - account-data:/data/account
+      - monitor-data:/data/monitor
     security_opt:
       - no-new-privileges:true
 volumes:
+  cloud-data:
+    name: ${CLOUD_DATA_VOLUME:-omnidesk-cloud-data}
   account-data:
     name: ${OFFICIAL_DATA_VOLUME:-omnidesk-account-data}
+  monitor-data:
+    name: ${MONITOR_DATA_VOLUME:-omnidesk-monitor-data}

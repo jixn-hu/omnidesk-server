@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import { createAccount, requireAdministrator, updateAccount, validatePassword } from './admin-accounts.mjs'
 import { passwordHash } from './storage.mjs'
+import { adminCookieName } from './admin-console.mjs'
 
 export function registerUserManagement({ application, storage, route, fail, active, tickets, publicUser }) {
   const { database } = storage
@@ -24,7 +25,7 @@ export function registerUserManagement({ application, storage, route, fail, acti
     requireAdministrator(database, request.account.id)
     database.prepare('DELETE FROM sessions WHERE token_hash=?').run(request.sessionHash)
     for (const connection of active.values()) if (connection.sessionHash === request.sessionHash) connection.close()
-    response.clearCookie('omnidesk_admin', { path: '/v1/admin', httpOnly: true, sameSite: 'strict' })
+    response.clearCookie(adminCookieName(request), { path: '/v1/admin', httpOnly: true, sameSite: 'strict', secure: adminCookieName(request) === 'omnidesk_admin' })
     response.json({ ok: true })
   }))
   const withHashing = async operation => {
@@ -70,12 +71,13 @@ export function registerUserManagement({ application, storage, route, fail, acti
     const user = find(request.params.id)
     if (user.id === request.account.id) fail(400, '不能删除当前登录的管理员')
     if (request.body?.confirmation !== user.username) fail(400, '请输入要删除的准确账号名以确认')
-    const shareIds = new Set(database.prepare('SELECT id FROM shares WHERE owner_id=?').all(user.id).map(share => share.id))
+    const shareIds = new Set(database.prepare("SELECT id FROM shares WHERE owner_id=? AND coalesce(json_extract(metadata,'$.source'),'user')!='managed'").all(user.id).map(share => share.id))
     const hashes = new Set(database.prepare('SELECT token_hash FROM sessions WHERE user_id=?').all(user.id).map(record => record.token_hash))
     database.exec('BEGIN IMMEDIATE')
     try {
       const administrators = database.prepare("SELECT count(*) AS total FROM users WHERE role='admin' AND disabled=0").get().total
       if (user.role === 'admin' && !user.disabled && administrators <= 1) fail(409, '必须保留至少一名启用的管理员')
+      database.prepare("UPDATE shares SET owner_id=? WHERE owner_id=? AND json_extract(metadata,'$.source')='managed'").run(request.account.id, user.id)
       database.prepare('DELETE FROM shares WHERE owner_id=?').run(user.id)
       database.prepare('DELETE FROM users WHERE id=?').run(user.id)
       database.exec('COMMIT')

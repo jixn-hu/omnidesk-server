@@ -32,7 +32,7 @@ try {
   await page.getByRole('button', { name: '管理用户 qa_admin', exact: true }).waitFor()
   await page.reload({ waitUntil: 'networkidle' })
   await page.locator('#workspace').waitFor({ state: 'visible' })
-  const cookie = (await page.context().cookies()).find(item => item.name === 'omnidesk_admin')
+  const cookie = (await page.context().cookies()).find(item => item.name === 'omnidesk_admin_http')
   assert(cookie?.httpOnly && cookie.sameSite === 'Strict')
   assert.equal(await page.evaluate(() => localStorage.length + sessionStorage.length), 0)
 

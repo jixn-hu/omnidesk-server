@@ -1,0 +1,6 @@
+bin
+.git
+data
+*.db*
+*.local.json
+deploy/admin-token.txt

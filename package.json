@@ -1,19 +1,22 @@
 {
-  "name": "omnidesk-official-server",
-  "version": "0.6.0",
+  "name": "omnidesk-server",
+  "version": "0.6.44",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22.18.0"
   },
   "scripts": {
-    "start": "node server.mjs",
+    "start": "node cloud.mjs",
     "admin:create": "node tools/create-admin.mjs",
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "start:account": "node server.mjs"
   },
   "dependencies": {
     "express": "4.22.3",
     "ssh2": "1.17.0",
     "ws": "8.22.0"
-  }
+  },
+  "description": "OmniDesk unified account, configuration sharing and monitoring backend",
+  "license": "MIT"
 }

@@ -1,0 +1,38 @@
+name: Verify unified deployment
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Validate configuration and build the unified service
+        run: |
+          docker compose config --quiet
+          docker compose -p omnidesk-ci up -d --build
+          curl --fail --retry 30 --retry-connrefused --retry-delay 1 http://127.0.0.1:47830/health
+      - name: Verify initialization, login and the monitoring gateway
+        run: |
+          printf '%s' '{"username":"ci_admin","password":"Synthetic-CI-password"}' | docker compose -p omnidesk-ci exec -T cloud node tools/create-admin.mjs --stdin-json
+          node --input-type=module <<'JS'
+          import assert from 'node:assert/strict'
+          const origin = 'http://127.0.0.1:47830'
+          const login = await fetch(origin + '/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'ci_admin', password: 'Synthetic-CI-password' }) })
+          assert.equal(login.status, 200)
+          const { token } = await login.json()
+          const health = await fetch(origin + '/v1/monitor/healthz', { headers: { Authorization: 'Bearer ' + token } })
+          assert.equal(health.status, 200)
+          assert.equal((await health.json()).service, 'omnidesk-monitor')
+          console.log('PASS account initialization, login and Go monitoring through one container')
+          JS
+      - name: Container logs
+        if: failure()
+        run: docker compose -p omnidesk-ci logs --no-color
+      - name: Clean temporary CI containers and volumes
+        if: always()
+        run: docker compose -p omnidesk-ci down -v

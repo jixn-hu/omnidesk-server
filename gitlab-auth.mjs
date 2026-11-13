@@ -1,11 +1,12 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { newToken, tokenHash } from './storage.mjs'
+import { adminCookieName, requireAdminBrowserRequest, sendAdminSession } from './admin-console.mjs'
 
 const tokenPattern = /^[A-Za-z0-9_-]{43}$/
 const lifetime = 5 * 60 * 1000
-const endpoint = value => {
+const endpoint = (value, allowHttp = false) => {
   const url = new URL(value)
-  if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)))) throw new Error('GitLab 地址与回调必须使用 HTTPS，本机开发可使用回环 HTTP')
+  if (url.username || url.password || url.search || url.hash || (url.protocol !== 'https:' && !(url.protocol === 'http:' && (allowHttp || ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname))))) throw new Error('GitLab 服务地址需使用 HTTPS，回调地址支持 HTTP 或 HTTPS')
   return url.href.replace(/\/$/, '')
 }
 
@@ -53,9 +54,9 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
     let issuer, redirectUri
     try {
       issuer = endpoint(input.issuer)
-      redirectUri = input.redirectUri ? endpoint(input.redirectUri) : ''
+      redirectUri = input.redirectUri ? endpoint(input.redirectUri, true) : ''
       if (redirectUri && !redirectUri.endsWith('/v1/auth/gitlab/callback')) throw new Error('GitLab 回调地址必须以 /v1/auth/gitlab/callback 结尾')
-    } catch { fail(400, '请填写有效的 HTTPS GitLab 地址和以 /v1/auth/gitlab/callback 结尾的回调；本机开发可使用回环 HTTP') }
+    } catch { fail(400, '请填写有效的 HTTPS GitLab 地址，以及以 /v1/auth/gitlab/callback 结尾的 HTTP 或 HTTPS 回调地址') }
     const clientId = input.clientId.trim()
     if (previous.clientSecret && (issuer !== previous.issuer || clientId !== previous.clientId) && !input.clientSecret) fail(400, '修改 GitLab 服务或 Application ID 时，请同时填写对应的新 Secret')
     const clientSecret = input.clientSecret ? seal(input.clientSecret, 'gitlab-client-secret') : previous.clientSecret
@@ -71,6 +72,7 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
   }
   const pollRecord = request => {
     const record = find(request.body.id)
+    if (record.purpose !== 'desktop') fail(401, 'GitLab 登录校验失败')
     if (!tokenPattern.test(request.body.secret ?? '') || tokenHash(request.body.secret) !== record.secretHash) fail(401, 'GitLab 登录校验失败')
     return record
   }
@@ -85,7 +87,7 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
     console.warn('[official-oauth]', JSON.stringify(event))
     return event
   }
-  const page = (response, success, error) => response.status(success ? 200 : 400).set({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' }).send(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>OmniDesk · 企业账号授权</title><body style="margin:0;background:#10171d;color:#e2e8ed;font:16px system-ui;display:grid;place-items:center;min-height:100vh"><main style="max-width:560px;padding:40px"><p style="color:#fca326;letter-spacing:3px">OMNIDESK / OAUTH</p><h1>${success ? '企业账号授权已完成' : '企业账号授权未完成'}</h1><p style="line-height:1.8;color:#a5b3bd">${success ? '请返回发起登录的 OmniDesk 客户端完成登录。可以关闭此页面。' : escape(error?.message ?? '请回到 OmniDesk 重新发起登录，不要刷新旧回调页面。')}</p>${error ? `<p style="font-size:12px;color:#a5b3bd">原因：${escape(error.code)} · 排查编号：${escape(error.reference)}</p>` : ''}<p style="font-size:12px;color:#a5b3bd">这是你配置的企业账号站点的 OAuth 授权，不是要求注册 GitLab.com。</p></main></body></html>`)
+  const page = (response, success, error, record) => response.status(success ? 200 : 400).set({ 'Content-Type': 'text/html; charset=utf-8', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'", 'Referrer-Policy': 'no-referrer', 'X-Frame-Options': 'DENY' }).send(`<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>OmniDesk · 企业账号授权</title><body style="margin:0;background:#10171d;color:#e2e8ed;font:16px system-ui;display:grid;place-items:center;min-height:100vh"><main style="max-width:560px;padding:40px"><p style="color:#fca326;letter-spacing:3px">OMNIDESK / OAUTH</p><h1>${success ? '企业账号授权已完成' : '企业账号授权未完成'}</h1><p style="line-height:1.8;color:#a5b3bd">${success ? '请返回发起登录的 OmniDesk 客户端完成登录。可以关闭此页面。' : escape(error?.message ?? '请回到 OmniDesk 重新发起登录，不要刷新旧回调页面。')}</p>${record?.purpose === 'admin' ? `<p><a style="color:#fca326" href="${escape(record.adminOrigin + '/admin/#' + record.returnView)}">返回 Web 管理台，取消后重新登录</a></p>` : ''}${error ? `<p style="font-size:12px;color:#a5b3bd">原因：${escape(error.code)} · 排查编号：${escape(error.reference)}</p>` : ''}<p style="font-size:12px;color:#a5b3bd">这是你配置的企业账号站点的 OAuth 授权，不是要求注册 GitLab.com。</p></main></body></html>`)
   const identityUser = record => {
     const config = record.config
     const identity = database.prepare('SELECT user_id FROM gitlab_identities WHERE issuer=? AND subject=?').get(config.issuer, record.profile.sub)
@@ -114,13 +116,65 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
       return database.prepare('SELECT * FROM users WHERE id=?').get(userId)
     } catch (error) { database.exec('ROLLBACK'); throw error }
   }
-  application.post('/v1/auth/gitlab/start', route((request, response) => {
+  const startRecord = (request, purpose, details = {}) => {
     const saved = stored()
     if (!saved.enabled) fail(503, '管理员尚未开启 GitLab 登录')
-    const config = { ...saved, issuer: endpoint(saved.issuer), redirectUri: endpoint(saved.redirectUri), clientSecret: open(saved.clientSecret, 'gitlab-client-secret') }
+    const config = { ...saved, issuer: endpoint(saved.issuer), redirectUri: endpoint(saved.redirectUri, true), clientSecret: open(saved.clientSecret, 'gitlab-client-secret') }
+    if (purpose === 'admin' && new URL(config.redirectUri).hostname !== new URL(details.adminOrigin).hostname) fail(400, 'Web GitLab 登录需使用与回调地址相同的主机，请通过回调地址对应的主机打开管理台；HTTP 和 HTTPS 可以不同')
     rate('gitlab-start:' + request.socket.remoteAddress, 20)
     cleanup()
     if (pending.size >= 1000) fail(503, 'GitLab 登录服务繁忙，请稍后重试')
+    const id = newToken()
+    const secret = newToken()
+    const expiresAt = Date.now() + lifetime
+    pending.set(id, { purpose, secretHash: tokenHash(secret), verifier: newToken(), expiresAt, stage: 'created', reference: randomBytes(6).toString('hex'), config, ...details })
+    const url = new URL(config.redirectUri.replace(/callback$/, 'authorize'))
+    url.searchParams.set('request', id)
+    return { id, secret, expiresAt, authorizationUrl: url.href }
+  }
+  const adminOrigin = request => {
+    requireAdminBrowserRequest(request)
+    let origin
+    try { origin = new URL(request.headers.origin) } catch { fail(403, '请从本服务管理页面发起 GitLab 登录') }
+    if (origin.origin !== request.headers.origin || origin.host !== request.headers.host || !['http:', 'https:'].includes(origin.protocol)) fail(403, '请从本服务管理页面发起 GitLab 登录')
+    return origin.origin
+  }
+  const adminProofName = (request, id) => adminCookieName(request) + '_gitlab_' + id.slice(0, 16)
+  const adminProofCookie = (request, response, id, value, maxAge) => response.cookie(adminProofName(request, id), value, { httpOnly: true, sameSite: 'lax', secure: adminCookieName(request) === 'omnidesk_admin', path: '/v1', maxAge })
+  const adminRecord = request => {
+    const origin = adminOrigin(request)
+    const record = find(request.body.id)
+    const name = adminProofName(request, request.body.id)
+    const proof = new RegExp(`(?:^|;\\s*)${name}=([A-Za-z0-9_-]{43})(?:;|$)`).exec(request.headers.cookie ?? '')?.[1]
+    if (record.purpose !== 'admin' || origin !== record.adminOrigin || !proof || tokenHash(proof) !== record.secretHash) fail(401, 'GitLab 管理员登录校验失败，请在发起登录的浏览器重试')
+    return record
+  }
+  const adminReturn = (response, record) => response.set('Referrer-Policy', 'no-referrer').redirect(303, record.adminOrigin + '/admin/#' + record.returnView)
+  application.post('/v1/admin/auth/gitlab/start', route((request, response) => {
+    const origin = adminOrigin(request)
+    const returnView = ['users', 'shares', 'settings'].includes(request.body.view) ? request.body.view : 'users'
+    const { secret, ...result } = startRecord(request, 'admin', { adminOrigin: origin, returnView })
+    adminProofCookie(request, response, result.id, secret, lifetime)
+    response.json(result)
+  }))
+  application.post('/v1/admin/auth/gitlab/complete', route((request, response) => {
+    rate('gitlab-admin-complete:' + request.socket.remoteAddress, 240)
+    const record = adminRecord(request)
+    if (!['ready', 'failed'].includes(record.stage)) return response.json({ state: 'pending' })
+    pending.delete(request.body.id)
+    adminProofCookie(request, response, request.body.id, '', 0)
+    if (record.stage === 'failed') fail(400, record.error)
+    const user = database.prepare('SELECT users.* FROM users JOIN gitlab_identities ON gitlab_identities.user_id=users.id WHERE gitlab_identities.issuer=? AND gitlab_identities.subject=?').get(record.config.issuer, record.profile.sub)
+    if (!user || user.role !== 'admin' || user.disabled) fail(403, '该 GitLab 账号未绑定启用的管理员账号，请联系管理员确认权限，或使用管理员账号密码登录')
+    sendAdminSession(request, response, user, loginResult)
+  }))
+  application.post('/v1/admin/auth/gitlab/cancel', route((request, response) => {
+    adminRecord(request)
+    pending.delete(request.body.id)
+    adminProofCookie(request, response, request.body.id, '', 0)
+    response.json({ ok: true })
+  }))
+  application.post('/v1/auth/gitlab/start', route((request, response) => {
     if (!['login', 'link'].includes(request.body.mode)) fail(400, 'GitLab 登录操作无效')
     let linkSessionHash
     let linkUserId
@@ -130,17 +184,16 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
       if (!account) fail(401, '请先登录要绑定的官方账号')
       linkSessionHash = tokenHash(token); linkUserId = account.id
     }
-    const id = newToken()
-    const secret = newToken()
-    const expiresAt = Date.now() + lifetime
-    pending.set(id, { secretHash: tokenHash(secret), verifier: newToken(), expiresAt, stage: 'created', reference: randomBytes(6).toString('hex'), linkSessionHash, linkUserId, config })
-    const url = new URL(config.redirectUri.replace(/callback$/, 'authorize'))
-    url.searchParams.set('request', id)
-    response.json({ id, secret, expiresAt, authorizationUrl: url.href })
+    response.json(startRecord(request, 'desktop', { linkSessionHash, linkUserId }))
   }))
   application.get('/v1/auth/gitlab/authorize', route((request, response) => {
     const record = find(request.query.request)
     const config = record.config
+    if (record.purpose === 'admin') {
+      const name = (record.adminOrigin.startsWith('https:') ? 'omnidesk_admin' : 'omnidesk_admin_http') + '_gitlab_' + request.query.request.slice(0, 16)
+      const proof = new RegExp(`(?:^|;\\s*)${name}=([A-Za-z0-9_-]{43})(?:;|$)`).exec(request.headers.cookie ?? '')?.[1]
+      if (!proof || tokenHash(proof) !== record.secretHash) return page(response, false, failure(record, 'admin_browser_cookie', '请在发起 Web 登录的同一浏览器完成授权，不要复制授权链接到其他浏览器。返回管理台后重新登录。'), record)
+    }
     if (record.stage !== 'created') fail(409, '该 GitLab 登录请求已使用，请重新发起')
     const browserSecret = newToken()
     record.browserHash = tokenHash(browserSecret); record.stage = 'authorizing'
@@ -156,8 +209,8 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
       const config = record.config
       const cookies = Object.fromEntries((request.headers.cookie ?? '').split(';').map(value => value.trim().split('=')))
       const proof = cookies[cookieName(request.query.state)]
-      if (record.stage !== 'authorizing') return page(response, false, failure(record, 'request_used', '这次授权已处理或仍在交换授权码，请返回原客户端；重复刷新回调不会重新登录'))
-      if (!tokenPattern.test(proof ?? '') || tokenHash(proof) !== record.browserHash) return page(response, false, failure(record, 'browser_cookie', '浏览器缺少授权校验 Cookie：请保持同一浏览器和同一官方服务地址，不要复制回调链接到另一浏览器；从客户端重新发起'))
+      if (record.stage !== 'authorizing') return page(response, false, failure(record, 'request_used', '这次授权已处理或仍在交换授权码，请返回原客户端；重复刷新回调不会重新登录'), record)
+      if (!tokenPattern.test(proof ?? '') || tokenHash(proof) !== record.browserHash) return page(response, false, failure(record, 'browser_cookie', '浏览器缺少授权校验 Cookie：请保持同一浏览器和同一官方服务地址，不要复制回调链接到另一浏览器；从客户端重新发起'), record)
       record.stage = 'exchanging'
       response.set('Set-Cookie', cookie(request.query.state, '', 0, config))
       if (request.query.error) throw new OAuthFailure(request.query.error === 'invalid_scope' ? 'invalid_scope' : 'provider_denied', request.query.error === 'invalid_scope' ? '应用缺少 openid / profile 授权范围，请管理员调整应用权限后重新发起' : '企业账号服务没有批准授权，请重新同意应用授权；如仍失败请检查应用权限')
@@ -169,11 +222,13 @@ export function registerGitlabAuth({ application, database, seal, open, route, f
       const username = profile.preferred_username || profile.nickname
       if (typeof profile.sub !== 'string' || !profile.sub.length || profile.sub.length > 256 || /[\0\r\n]/.test(profile.sub) || typeof username !== 'string' || !username.length || username.length > 256 || /[\0\r\n]/.test(username)) throw new OAuthFailure('userinfo_identity', '企业账号服务没有返回有效的 sub 和用户名，请检查 openid / profile 范围及 UserInfo 兼容性')
       record.profile = { sub: profile.sub, username }; record.stage = 'ready'
+      if (record.purpose === 'admin') return adminReturn(response, record)
       return page(response, true)
     } catch (error) {
       const detail = failure(record, error instanceof OAuthFailure ? error.code : record ? 'invalid_response' : 'request_expired', error instanceof OAuthFailure ? error.message : record ? '授权响应格式不正确，请管理员检查企业账号 OAuth 接口' : '登录请求已过期、已取消或后台已重启。请回到 OmniDesk 重新发起，不要刷新旧回调页面')
       if (['exchanging', 'userinfo'].includes(record?.stage)) { record.stage = 'failed'; record.error = detail.message + '（' + detail.code + '，排查编号 ' + detail.reference + '）' }
-      return page(response, false, detail)
+      if (record?.purpose === 'admin' && record.stage === 'failed') return adminReturn(response, record)
+      return page(response, false, detail, record)
     }
   }))
   application.post('/v1/auth/gitlab/poll', route((request, response) => {

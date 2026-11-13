@@ -62,8 +62,8 @@ export async function createGitlabFixture() {
   return { origin: 'http://127.0.0.1:' + server.address().port, setProfile: profile => { nextProfile = profile }, setFailure: value => { failure = value }, close: () => new Promise(done => server.close(done)) }
 }
 
-export async function authorizeGitlab(authorizationUrl) {
-  const authorize = await fetch(authorizationUrl, { redirect: 'manual', headers: { Connection: 'close' } })
+export async function authorizeGitlab(authorizationUrl, browserCookie) {
+  const authorize = await fetch(authorizationUrl, { redirect: 'manual', headers: { Connection: 'close', ...(browserCookie ? { Cookie: browserCookie } : {}) } })
   assert.equal(authorize.status, 302)
   const cookie = authorize.headers.get('set-cookie').split(';')[0]
   const login = await fetch(authorize.headers.get('location'), { redirect: 'manual', headers: { Connection: 'close' } })

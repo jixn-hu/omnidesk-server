@@ -57,3 +57,26 @@ test('GitLab honors closed registration and disabled accounts without changing e
   assert.equal((await api('/admin/users/' + memberLocal.id, 'PATCH', { disabled: true }, token)).status, 200)
   assert.equal((await oauth()).status, 403)
 })
+
+
+test('GitLab settings accept intranet HTTP callbacks while retaining issuer and URL checks', async context => {
+  const directory = mkdtempSync(join(tmpdir(), 'omnidesk-gitlab-http-'))
+  const service = createOfficialServer({ directory })
+  context.after(() => service.close())
+  await createAccount(service.storage, { username: 'qa_admin', password: 'QA-synthetic-admin-password' })
+  service.server.listen(0, '127.0.0.1')
+  await once(service.server, 'listening')
+  const origin = 'http://127.0.0.1:' + service.server.address().port
+  const login = await fetch(origin + '/v1/auth/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'qa_admin', password: 'QA-synthetic-admin-password' }) }).then(response => response.json())
+  const gitlab = { enabled: false, issuer: 'https://gitlab.example.com', clientId: 'qa-client', redirectUri: 'http://192.0.2.75:47831/v1/auth/gitlab/callback' }
+  const save = value => fetch(origin + '/v1/admin/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + login.token }, body: JSON.stringify({ registrationOpen: false, gitlab: value }) })
+  const saved = await save(gitlab)
+  assert.equal(saved.status, 200)
+  assert.equal((await saved.json()).gitlab.redirectUri, gitlab.redirectUri)
+  for (const value of [
+    { ...gitlab, issuer: 'http://gitlab.internal' },
+    { ...gitlab, redirectUri: 'ftp://account.internal/v1/auth/gitlab/callback' },
+    { ...gitlab, redirectUri: 'http://account.internal/wrong' },
+    { ...gitlab, redirectUri: gitlab.redirectUri + '?token=test' }
+  ]) assert.equal((await save(value)).status, 400)
+})

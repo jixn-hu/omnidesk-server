@@ -205,3 +205,51 @@ test('user directory paginates and treats search wildcards as literal text', asy
   assert.equal((await service.api('/v1/admin/users?search=qa_page_', { token: administrator.token })).data.total, 54)
   assert.equal((await service.api('/v1/admin/users?search=%25', { token: administrator.token })).data.total, 0)
 })
+
+
+test('explicit intranet HTTP and HTTPS origins authenticate separately and reject other sites', async context => {
+  const httpOrigin = 'http://account.internal:47831'
+  const httpsOrigin = 'https://account.internal:47831'
+  const service = await fixture(context, { publicUrl: httpOrigin + ', ' + httpsOrigin })
+  await service.bootstrap()
+  const body = { username: 'qa_admin', password: secret }
+  const login = await service.api('/v1/admin/login', { method: 'POST', body, browser: true, origin: httpOrigin })
+  assert.equal(login.status, 200)
+  assert.match(login.headers.get('set-cookie'), /^omnidesk_admin_http=/)
+  assert.doesNotMatch(login.headers.get('set-cookie'), /; Secure/i)
+  const cookie = login.headers.get('set-cookie').split(';')[0]
+  assert.equal((await service.api('/v1/admin/me', { cookie, browser: true, origin: httpOrigin })).status, 200)
+  for (const origin of ['http://attacker.internal:47831', 'http://account.internal:47832', 'ftp://account.internal:47831']) {
+    assert.equal((await service.api('/v1/admin/me', { cookie, browser: true, origin })).status, 403)
+  }
+  const secure = await service.api('/v1/admin/login', { method: 'POST', body, browser: true, origin: httpsOrigin })
+  assert.equal(secure.status, 200)
+  assert.match(secure.headers.get('set-cookie'), /^omnidesk_admin=/)
+  assert.match(secure.headers.get('set-cookie'), /; Secure/i)
+  const secureCookie = secure.headers.get('set-cookie').split(';')[0]
+  assert.equal((await service.api('/v1/admin/me', { cookie: secureCookie, browser: true, origin: httpOrigin })).status, 401)
+  const logout = await service.api('/v1/admin/logout', { method: 'POST', body: {}, cookie, browser: true, origin: httpOrigin })
+  assert.equal(logout.status, 200)
+  assert.match(logout.headers.get('set-cookie'), /^omnidesk_admin_http=;/)
+  assert.equal((await service.api('/v1/admin/me', { cookie, browser: true, origin: httpOrigin })).status, 401)
+})
+
+
+test('six-character account passwords work across register, admin create/reset and browser login', async context => {
+  const { storage, api } = await fixture(context, { registration: true })
+  await assert.rejects(createAccount(storage, { username: 'short_admin', password: '12345' }), /6/)
+  await createAccount(storage, { username: 'six_admin', password: 'six123' })
+  assert.equal((await api('/v1/auth/register', { method: 'POST', body: { username: 'five_user', password: '12345' } })).status, 400)
+  const registered = await api('/v1/auth/register', { method: 'POST', body: { username: 'six_user', password: 'six123' } })
+  assert.equal(registered.status, 200)
+  const login = await api('/v1/auth/login', { method: 'POST', body: { username: 'six_admin', password: 'six123' } })
+  assert.equal(login.status, 200)
+  const browser = await api('/v1/admin/login', { method: 'POST', browser: true, body: { username: 'six_admin', password: 'six123' } })
+  assert.equal(browser.status, 200)
+  const created = await api('/v1/admin/users', { method: 'POST', token: login.data.token, body: { username: 'six_created', password: 'new123' } })
+  assert.equal(created.status, 201)
+  const reset = '/v1/admin/users/' + created.data.id + '/password'
+  assert.equal((await api(reset, { method: 'POST', token: login.data.token, body: { password: '12345' } })).status, 400)
+  assert.equal((await api(reset, { method: 'POST', token: login.data.token, body: { password: 'six456' } })).status, 200)
+  assert.equal((await api('/v1/auth/login', { method: 'POST', body: { username: 'six_created', password: 'six456' } })).status, 200)
+})

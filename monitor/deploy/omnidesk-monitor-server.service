@@ -1,0 +1,30 @@
+[Unit]
+Description=OmniDesk monitoring server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=omnidesk-monitor
+Group=omnidesk-monitor
+Environment=OMNIDESK_ADMIN_TOKEN_FILE=/etc/omnidesk-monitor/admin-token
+ExecStart=/usr/local/bin/omnidesk-monitor-server -listen 127.0.0.1:18088 -data /var/lib/omnidesk-monitor/monitor.db
+WorkingDirectory=/var/lib/omnidesk-monitor
+StateDirectory=omnidesk-monitor
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

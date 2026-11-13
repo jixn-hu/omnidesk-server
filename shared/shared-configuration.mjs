@@ -27,6 +27,16 @@ export function sharedConfiguration(input) {
             throw new Error('共享 RDP 选项格式不正确');
         const raw = options;
         result.options = { ignoreCertificate: true };
+        if (raw.engine !== undefined) {
+            if (!['ironrdp', 'freerdp'].includes(raw.engine))
+                throw new Error('共享 RDP 引擎不正确');
+            result.options.engine = raw.engine;
+        }
+        if (raw.securityMode !== undefined) {
+            if (!['auto', 'legacy'].includes(raw.securityMode))
+                throw new Error('共享 RDP 安全模式不正确');
+            result.options.securityMode = raw.securityMode;
+        }
         if (raw.performanceMode !== undefined) {
             if (!['smooth', 'balanced', 'clear'].includes(raw.performanceMode))
                 throw new Error('共享 RDP 画质模式不正确');

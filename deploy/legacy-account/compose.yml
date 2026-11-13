@@ -1,0 +1,26 @@
+services:
+  account:
+    build:
+      context: ../..
+      dockerfile: deploy/legacy-account/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:47830:47830"
+    environment:
+      GUACD_HOST: guacd
+      OFFICIAL_TARGET_CIDRS: ${OFFICIAL_TARGET_CIDRS:-}
+      OFFICIAL_REGISTRATION: ${OFFICIAL_REGISTRATION:-false}
+      OFFICIAL_PUBLIC_URL: ${OFFICIAL_PUBLIC_URL:-}
+    volumes:
+      - account-data:/data
+    security_opt:
+      - no-new-privileges:true
+  guacd:
+    profiles: [legacy-gateway]
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  account-data:
+    name: ${OFFICIAL_DATA_VOLUME:-omnidesk-account-data}

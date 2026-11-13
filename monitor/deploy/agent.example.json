@@ -1,0 +1,8 @@
+{
+  "serverUrl": "https://cloud.example.com/v1/monitor",
+  "token": "REPLACE_WITH_NODE_TOKEN_FROM_CLIENT",
+  "statePath": "/var/lib/omnidesk-monitor-agent/state.json",
+  "intervalSeconds": 10,
+  "includeNics": ["eth0"],
+  "allowInsecure": false
+}

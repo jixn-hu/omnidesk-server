@@ -9,3 +9,5 @@
 - Docker 构建路径已收敛到本仓库，根目录 Compose 是统一部署入口；数据卷目录预设 node 用户权限。Linux 容器构建、首次管理员初始化、账号登录和 Go 网关检查由本仓库 Verify unified deployment 工作流验证，具体结果见 Actions。
 
 当前机器没有 Docker daemon，本地没有声称完成容器测试。本次未更改或重新部署已有线上实例。
+
+GitHub Actions 实际验证通过：[Verify unified deployment / 43351057679](https://github.com/jixn-hu/omnidesk-server/actions/runs/43351057679)。从公开仓库构建 Linux 镜像成功，使用全新命名卷启动，以非 root 用户完成初始化、登录及 Go 监控健康检查；测试结束后清理临时容器与卷。
